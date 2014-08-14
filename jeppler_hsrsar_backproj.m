@@ -38,7 +38,7 @@ signal_rc = fft(signal,[],1); %range comressed signal
 signal_rc_ex = [signal_rc' (signal_rc(1,:))']'; %concatenate zero range row to the end to enable wrapped interpolation
 
 %JDE_TODO correct range compressed data for free space path loss
-%FSPL = 20 * log10(rTotal)+ 20 * log10(fc(i_fc))-147.55;
+FSPL = 20 * log10(rTotal)+ 20 * log10(fc(i_fc))-147.55;
 
 
 %set-up interpolation of range compressed data
