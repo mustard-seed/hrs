@@ -6,7 +6,7 @@ c = 299792458.0;
 dx = 0.2; dy=2; dz=0.2;
 x = -10:dx:100;
 y = 0:dy:0;
-z = 0:dz:100;
+z = 0:dz:10;
 doppler_fraction = 0.9; %fraction of full Doppler spectrum to be used for each target - small fraction means lower resolution but faster processing
 
 %define system parameters
