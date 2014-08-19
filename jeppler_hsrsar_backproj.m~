@@ -3,10 +3,10 @@ function jeppler_hsrsar_backproj
 c = 299792458.0;
 
 %define image formation parameters
-dx = 0.2; dy=2; dz=0.2;
-x = -10:dx:100;
+dx = 01; dy=2; dz=0.5;
+x = (-10:dx:100);
 y = 0:dy:0;
-z = 0:dz:10;
+z = 0:dz:100;
 doppler_fraction = 0.9; %fraction of full Doppler spectrum to be used for each target - small fraction means lower resolution but faster processing
 
 %define system parameters
@@ -22,7 +22,7 @@ p_t = [0, 0, 30]; %transmitter location
 v = [0.0, 100.0, 0.0]; %constant velocity of receiver on train
 p_r_0 = [50, -500, 4.5]; %initial position of receiver on train
 %p_r_0 = [0, -500, 0]; %initial position of receiver on train ...SIMPLIFIED FOR DEBUGGING
-p_s_1 = [20, 0, 0.0]; %scatterer 1
+p_s_1 = [0, 0.0, 0.0]; %scatterer 1
 %x = p_s_1(1); y = p_s_1(2); z = p_s_1(3);%test one point
 
 %derived values
@@ -44,14 +44,16 @@ fc_mat = repmat(fc_vec',1,n_az);
 signal = signal.*fc_mat;
 
 %range compression
-signal_rc = flipud(ifft(signal,[],1)); %range compressed signal ... flip needed due to sign convention of signal phase
+window = fftshift(hamming(n_rng));
+window_mat = repmat(window,1,n_az);
+signal_rc = flipud(ifft(window_mat.*signal,[],1)); %range compressed signal ... flip needed due to sign convention of signal phase
 
 %correct for signal component of FSPL
 del_rng = c/fc_band; %m
 ranges = (0:n_rng-1)*del_rng;
 ranges_mat = repmat(ranges',1,n_az);
 signal_rc = signal_rc.*ranges_mat;
-%imagesc(abs(signal_rc));figure(gcf);
+imagesc(abs(signal_rc));figure(gcf);
 
 %set-up interpolation of range compressed data
 signal_rc_ex = [signal_rc' (signal_rc(1,:))']'; %concatenate zero range row to the end to enable wrapped interpolation in the case when the range lies between last and first value
@@ -75,7 +77,8 @@ for ii = 1:length(x)
             rTotal = mod(rTotal_, range_interval);
             %test1 =  exp(complex(0,2*pi*(rTotal)./lambda));
             %test2 = GI(rTotal, t_segment)
-            img(ii,jj,kk) = sum(GI(rTotal, t_segment).*exp(complex(0,-2*pi*(rTotal)./lambda)));
+            window = hamming(length(t_segment))';
+            img(ii,jj,kk) = sum(window.*GI(rTotal, t_segment).*exp(complex(0,-2*pi*(rTotal)./lambda)));
         end
     end
 end
