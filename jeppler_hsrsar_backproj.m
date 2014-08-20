@@ -1,29 +1,24 @@
 function jeppler_hsrsar_backproj
-%physical constants
+close all;
+
+%define physical constants
 c = 299792458.0;
 
-%define image formation parameters
-dx = 0.5; dy=2; dz=0.5;
-x = (-10:dx:100);
-y = 0:dy:0;
-z = 0:dz:100;
-doppler_fraction = 0.99; %fraction of full Doppler spectrum to be used for each target - small fraction means lower resolution but faster processing
+%define geometry
+geom.p_t = [0, 0, 30]; %transmitter location
+geom.v = [0.0, 100.0, 0.0]; %constant velocity of receiver on train
+geom.p_r_0 = [50, -500, 4.5]; %initial position of receiver on train
+p_s_1 = [10, 300.0, 0.0]; %scatterer 1
 
 %define system parameters
 fc = 9e8;
-fc_band = 30.0e6;
+fc_band = 300.0e6;
 del_fc = 200e3;
 fd_samp = 1000.0; %baseband sample rate (Hz)
 t_range = [0, 10.0]; %data acquisition time interval
 
-%define geometry
-p_t = [0, 0, 30]; %transmitter location
-%p_t = [0, 0, 0]; %transmitter location...SIMPLIFIED FOR DEBUGGING
-v = [0.0, 100.0, 0.0]; %constant velocity of receiver on train
-p_r_0 = [50, -500, 4.5]; %initial position of receiver on train
-%p_r_0 = [0, -500, 0]; %initial position of receiver on train ...SIMPLIFIED FOR DEBUGGING
-p_s_1 = [0, 0.0, 0.0]; %scatterer 1
-%x = p_s_1(1); y = p_s_1(2); z = p_s_1(3);%test one point
+%define image formation parameters
+doppler_fraction = 0.99; %fraction of full Doppler spectrum to be used for each target - small fraction means lower resolution but faster processing
 
 %derived values
 t = t_range(1): 1/fd_samp:t_range(2);
@@ -31,12 +26,8 @@ fc_vec = fc-fc_band/2:del_fc:fc+fc_band/2;
 fc_vec = ifftshift(fc_vec);
 fc_band = max(fc_vec)-min(fc_vec);
 
-img = zeros(length(x), length(y), length(z));
-img = complex(img, img);
-alpha=0.0; %random phase offset...not used
-
 %simulate data acquisition
-signal = get_signal(p_t, p_s_1,fc_vec,alpha,v, p_r_0, t); %baseband signal per tone
+signal = get_signal(geom, p_s_1,fc_vec, t); %baseband signal per tone
 [n_rng, n_az] = size(signal);
 
 %correct for freq. component of FSPL
@@ -51,95 +42,168 @@ signal_rc = flipud(ifft(window_mat.*signal,[],1)); %range compressed signal ... 
 %correct for signal component of FSPL
 del_rng = c/fc_band; %m
 ranges = (0:n_rng-1)*del_rng;
+range_interval = n_rng*del_rng;
 ranges_mat = repmat(ranges',1,n_az);
 signal_rc = signal_rc.*ranges_mat;
-imagesc(abs(signal_rc));figure(gcf);
 
 %set-up interpolation of range compressed data
 signal_rc_ex = [signal_rc' (signal_rc(1,:))']'; %concatenate zero range row to the end to enable wrapped interpolation in the case when the range lies between last and first value
 [X, Y] = ndgrid([ranges, ranges(end)+del_rng], t);
 GI = griddedInterpolant(X,Y, signal_rc_ex); %set-up interpolation object
 
-%back-projection over image grid
-range_interval = n_rng*del_rng;
-lambda = c/fc;
-del_y_factor = (doppler_fraction/sqrt(1-doppler_fraction^2));
-for ii = 1:length(x)
-    ii
-    for jj = 1:length(y)
-        for kk = 1:length(z)
-            p_s = [x(ii), y(jj), z(kk)];
-            del_xz = sqrt((p_r_0(1) - p_s(1))^2 + (p_r_0(3) - p_s(3))^2); %distance from current scatterer to Rx (assumes y only train velocity)
-            del_y = del_y_factor*del_xz;
-            t_range_segment = [max((p_s(2) - del_y - p_r_0(2))/v(2), t_range(1)), min((p_s(2) + del_y - p_r_0(2))/v(2), t_range(2))]; %again, train velocity assumed here
-            t_segment = t_range_segment(1): 1/fd_samp:t_range_segment(2);
-            rTotal_ = r_total(p_t, p_s,v, p_r_0, t_segment);
-            rTotal = mod(rTotal_, range_interval);
-            %test1 =  exp(complex(0,2*pi*(rTotal)./lambda));
-            %test2 = GI(rTotal, t_segment)
-            window = hamming(length(t_segment))';
-            img(ii,jj,kk) = sum(window.*GI(rTotal, t_segment).*exp(complex(0,-2*pi*(rTotal)./lambda)));
-        end
+target_analysis(p_s_1, geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
+
+
+%focus and render 3 cartesian slices centered on test target
+orth_config.dx = 0.2; orth_config.dy = 0.2; orth_config.dz = 0.2;
+orth_config.xwin = 10; orth_config.ywin = 10; orth_config.zwin = 10;
+target_orth_slice(p_s_1, geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval, orth_config)
+
+%misc renderings
+% figure;
+% imagesc(abs(signal_rc));figure(gcf);
+% colormap(gray);
+% figure;
+% imagesc(abs(signal));figure(gcf);
+% colormap(gray);
+end
+
+function target_analysis(p_s, geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval)
+%quality assessement of point target
+xwin = 100;
+ywin = 50;
+dx = 0.1; 
+dy = 0.1;
+
+x_vec = (-1*xwin:dx:xwin) + p_s(1);
+y_vec = (-1*ywin:dy:ywin) + p_s(2);
+
+x_profile = zeros(length(x_vec),1);
+y_profile = zeros(length(y_vec),1);
+
+for ii = 1:length(x_vec)
+    x_profile(ii) = back_proj_focus_point([x_vec(ii), p_s(2), p_s(3)], geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
+end
+for ii = 1:length(y_vec)
+    y_profile(ii) = back_proj_focus_point([p_s(1), y_vec(ii), p_s(3)], geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
+end
+
+x_profile = x_profile./max(max(abs(x_profile)));
+y_profile = y_profile./max(max(abs(y_profile)));
+
+figure('units','normalized','outerposition',[0 0 1 1]);
+subplot(2,1,1);
+plot(20*log10(abs(x_profile)));
+
+subplot(2,1,2);
+plot(20*log10(abs(y_profile)));
+
+end
+
+
+%--------------------------------------------------------------------------
+function target_orth_slice(p_s, geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval, orth_config)
+%focus and render 3 cartesian slices centered on test target
+x_vec = (-1*orth_config.xwin:orth_config.dx:orth_config.xwin) + p_s(1);
+y_vec = (-1*orth_config.ywin:orth_config.dy:orth_config.ywin) + p_s(2);
+z_vec = (max([0, -1*orth_config.zwin]):orth_config.dz:orth_config.zwin) + p_s(3);
+
+img_xy = zeros(length(x_vec), length(y_vec));
+img_xz = zeros(length(x_vec), length(z_vec));
+img_yz = zeros(length(y_vec), length(z_vec));
+img_xy = complex(img_xy, img_xy);
+img_xz = complex(img_xz, img_xz);
+img_yz = complex(img_yz, img_yz);
+
+for ii = 1:length(x_vec)
+    for jj = 1:length(y_vec)
+        img_xy(ii,jj) = back_proj_focus_point([x_vec(ii), y_vec(jj), p_s(3)], geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
+    end
+end
+for ii = 1:length(x_vec)
+    for jj = 1:length(z_vec)
+        img_xz(ii,jj) = back_proj_focus_point([x_vec(ii),  p_s(2), z_vec(jj)], geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
+    end
+end
+for ii = 1:length(y_vec)
+    for jj = 1:length(z_vec)
+        img_yz(ii,jj) = back_proj_focus_point([p_s(1), y_vec(ii), z_vec(jj)], geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
     end
 end
 
-%render results for xy, xz, yz planes centered on scatterer
-close all;
-p_s_1_idx = round((p_s_1 - [x(1), y(1), z(1)])./[dx, dy, dz])+1;
-%figure('units','normalized','outerposition',[0 0 1 1]);
+img_xy = img_xy./max(max(abs(img_xy)));
+img_xz = img_xz./max(max(abs(img_xz)));
+img_yz = img_yz./max(max(abs(img_yz)));
+
 figure;
 subplot(2,2,1);
-imagesc(x,y,abs(squeeze(img(:,:,p_s_1_idx(3)))'));
+imagesc(x_vec,y_vec,abs(img_xy'));
 set(gca,'YDir','normal');
-colormap(gray);
+colormap(gray);    
 
 subplot(2,2,2);
-imagesc(x,z,abs(squeeze(img(:,p_s_1_idx(2),:))'));
+imagesc(x_vec,z_vec,abs(img_xz'));
 set(gca,'YDir','normal');
-colormap(gray);
+colormap(gray);   
 
 subplot(2,2,3);
-imagesc(y,z,abs(squeeze(img(p_s_1_idx(1),:,:))'));
+imagesc(y_vec,z_vec,abs(img_yz'));
 set(gca,'YDir','normal');
-colormap(gray);
+colormap(gray);    
 
-figure;
-imagesc(x,z,abs(squeeze(img(:,p_s_1_idx(2),:))'));
-set(gca,'YDir','normal');
-colormap(gray);
+figure('units','normalized','outerposition',[0 0 1 1]);
+subplot(2,1,1);
+plot(20*log10(abs(img_xy(:,floor(length(y_vec)/2) + 1))));
+subplot(2,1,2);
+plot(20*log10(abs(img_xy(floor(length(x_vec)/2) + 1,:))));
 
-img_norm = img./max(max(max(abs(img))));
-%figure('units','normalized','outerposition',[0 0 1 1]);
-%subplot(2,1,1);
-%plot(20*log10(abs(img_norm(51,:))));
-%subplot(2,1,2);
-%plot(20*log10(abs(img_norm(:,51))));
 end
 
 %--------------------------------------------------------------------------
-function rTotal = r_total(p_t_, p_s_,v, p_r_0, t)
-    %Tx, scatterer and Rx positions
-    nt = length(t);
-    p_t = p_t_'*ones(1,nt);
-    p_s = p_s_'*ones(1,nt);
-    p_r = p_r_0'*ones(1,nt) + v'*t;
-
-    %two leg vector
-    Rts = p_s - p_t;
-    Rsr = p_r - p_s;
-
-    %two leg ranges
-    Rts_norm = sqrt(Rts(1,:).^2+Rts(2,:).^2+Rts(3,:).^2);
-    Rsr_norm = sqrt(Rsr(1,:).^2+Rsr(2,:).^2+Rsr(3,:).^2);
-    
-    %total range
-    rTotal = Rts_norm + Rsr_norm;
-end
-
-%--------------------------------------------------------------------------
-function signal = get_signal(p_t, p_s, fc, alpha, v, p_r_0, t)
+function backscatter = back_proj_focus_point(p_s, geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval)
+%uses back projection to focus a single point from the already range
+%compressed data (supplied as a griddedInterpolant object)
 c = 299792458.0;
-rTotal = r_total(p_t, p_s, v, p_r_0, t);
+del_y_factor = (doppler_fraction/sqrt(1-doppler_fraction^2));
+del_xz = sqrt((geom.p_r_0(1) - p_s(1))^2 + (geom.p_r_0(3) - p_s(3))^2); %distance from current scatterer to Rx (assumes y only train velocity)
+del_y = del_y_factor*del_xz;
+t_range_segment = [max((p_s(2) - del_y - geom.p_r_0(2))/geom.v(2), t_range(1)), min((p_s(2) + del_y - geom.p_r_0(2))/geom.v(2), t_range(2))]; %again, train velocity assumed here
+t_segment = t_range_segment(1): 1/fd_samp:t_range_segment(2);
+rTotal = r_total(geom, p_s, t_segment);
+rTotal_folded = mod(rTotal, range_interval);
+window = hamming(length(t_segment))';
+backscatter = sum(window.*GI(rTotal_folded, t_segment).*exp(complex(0,-2*pi*(rTotal_folded)./(c/fc)))); %actual back projection coherent summation with windowing 
+end
+
+%--------------------------------------------------------------------------
+
+function rTotal = r_total(geom, p_s_, t)
+%computes two leg bistatic range vector corresponding to given time vector
+%t and defined geomtery
+%Tx, scatterer and Rx positions
+nt = length(t);
+p_t = geom.p_t'*ones(1,nt);
+p_s = p_s_'*ones(1,nt);
+p_r = geom.p_r_0'*ones(1,nt) + geom.v'*t;
+
+%two leg vector
+Rts = p_s - p_t;
+Rsr = p_r - p_s;
+
+%two leg ranges
+Rts_norm = sqrt(Rts(1,:).^2+Rts(2,:).^2+Rts(3,:).^2);
+Rsr_norm = sqrt(Rsr(1,:).^2+Rsr(2,:).^2+Rsr(3,:).^2);
+
+%total range
+rTotal = Rts_norm + Rsr_norm;
+end
+
+%--------------------------------------------------------------------------
+function signal = get_signal(geom, p_s, fc, t)
+%computes 2D complex signal matrix (time x carrier ferquency) for a given
+%scatterer loaction and defined geometry
+c = 299792458.0;
+rTotal = r_total(geom, p_s, t);
 signal = zeros(length(fc), length(rTotal));
 for i_fc = 1:length(fc)
     lambda = c/fc(i_fc);
@@ -148,6 +212,6 @@ for i_fc = 1:length(fc)
     FSPL_linear = 1./((4*pi()/c.*rTotal.*fc(i_fc)));
     
     % Received signal
-    signal(i_fc, :) = FSPL_linear.*exp(complex(0,alpha + 2*pi*(rTotal)./lambda));
+    signal(i_fc, :) = FSPL_linear.*exp(complex(0, 2*pi*(rTotal)./lambda));
 end
 end
