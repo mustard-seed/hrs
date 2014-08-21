@@ -41,9 +41,9 @@ signal_rc = flipud(ifft(window_mat.*signal,[],1)); %range compressed signal ... 
 
 %correct for range component of FSPL
 del_rng = c/fc_band; %m
-ranges = (0:n_rng-1)*del_rng;
+ranges = (0:n_rng-1)*del_rng*4*pi()/c;
 range_interval = n_rng*del_rng;
-ranges_mat = repmat((ranges').*(4*pi/c),1,n_az);
+ranges_mat = repmat((ranges').*4*pi()/c,1,n_az);
 signal_rc = signal_rc.*ranges_mat;
 
 %set-up interpolation of range compressed data
@@ -51,7 +51,7 @@ signal_rc_ex = [signal_rc' (signal_rc(1,:))']'; %concatenate zero range row to t
 [X, Y] = ndgrid([ranges, ranges(end)+del_rng], t);
 GI = griddedInterpolant(X,Y, signal_rc_ex); %set-up interpolation object
 
-target_analysis(p_s_1, geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
+%target_analysis(p_s_1, geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
 
 %focus and render 3 cartesian slices centered on test target
 orth_config.dx = 0.2; orth_config.dy = 0.2; orth_config.dz = 0.2;
