@@ -8,7 +8,7 @@ c = 299792458.0;
 geom.p_t = [0, 0, 30]; %transmitter location
 geom.v = [0.0, 100.0, 0.0]; %constant velocity of receiver on train
 geom.p_r_0 = [50, -500, 4.5]; %initial position of receiver on train
-p_s_1 = [500, 0.0, 0.0]; %test scatterer
+p_s_1 = [, 0.0, 0.0]; %test scatterer
 
 %define system parameters
 fc = 9e8;
@@ -30,7 +30,7 @@ fc_band = max(fc_vec)-min(fc_vec);
 signal = get_signal(geom, p_s_1,fc_vec, t); %baseband signal per tone
 [n_rng, n_az] = size(signal);
 
-%correct for freq. component of FSPL
+%correct for freq. component of free space path loss
 fc_mat = repmat(fc_vec',1,n_az);
 signal = signal.*fc_mat;
 
@@ -39,11 +39,11 @@ window = fftshift(hamming(n_rng));
 window_mat = repmat(window,1,n_az);
 signal_rc = flipud(ifft(window_mat.*signal,[],1)); %range compressed signal ... flip needed due to sign convention of signal phase
 
-%correct for range component of FSPL
+%correct for range component of free space path loss
 del_rng = c/fc_band; %m
-ranges = (0:n_rng-1)*del_rng*4*pi()/c;
+ranges = (0:n_rng-1)*del_rng;
 range_interval = n_rng*del_rng;
-ranges_mat = repmat((ranges').*4*pi()/c,1,n_az);
+ranges_mat = repmat((ranges').*(4*pi/c),1,n_az);
 signal_rc = signal_rc.*ranges_mat;
 
 %set-up interpolation of range compressed data
@@ -51,7 +51,7 @@ signal_rc_ex = [signal_rc' (signal_rc(1,:))']'; %concatenate zero range row to t
 [X, Y] = ndgrid([ranges, ranges(end)+del_rng], t);
 GI = griddedInterpolant(X,Y, signal_rc_ex); %set-up interpolation object
 
-%target_analysis(p_s_1, geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
+target_analysis(p_s_1, geom, fc, doppler_fraction, t_range, fd_samp, GI, range_interval);
 
 %focus and render 3 cartesian slices centered on test target
 orth_config.dx = 0.2; orth_config.dy = 0.2; orth_config.dz = 0.2;

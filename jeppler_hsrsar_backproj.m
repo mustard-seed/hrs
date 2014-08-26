@@ -8,7 +8,7 @@ c = 299792458.0;
 geom.p_t = [0, 0, 30]; %transmitter location
 geom.v = [0.0, 100.0, 0.0]; %constant velocity of receiver on train
 geom.p_r_0 = [50, -500, 4.5]; %initial position of receiver on train
-p_s_1 = [500, 0.0, 0.0]; %test scatterer
+p_s_1 = [100, 0.0, 0.0]; %test scatterer
 
 %define system parameters
 fc = 9e8;
@@ -30,16 +30,17 @@ fc_band = max(fc_vec)-min(fc_vec);
 signal = get_signal(geom, p_s_1,fc_vec, t); %baseband signal per tone
 [n_rng, n_az] = size(signal);
 
-%correct for freq. component of FSPL
+%correct for freq. component of free space path loss
 fc_mat = repmat(fc_vec',1,n_az);
 signal = signal.*fc_mat;
 
 %range compression
 window = fftshift(hamming(n_rng));
+%window = fftshift(kaiser(n_rng,2.4));
 window_mat = repmat(window,1,n_az);
 signal_rc = flipud(ifft(window_mat.*signal,[],1)); %range compressed signal ... flip needed due to sign convention of signal phase
 
-%correct for range component of FSPL
+%correct for range component of free space path loss
 del_rng = c/fc_band; %m
 ranges = (0:n_rng-1)*del_rng;
 range_interval = n_rng*del_rng;
@@ -180,6 +181,7 @@ t_segment = t_range_segment(1): 1/fd_samp:t_range_segment(2);
 rTotal = r_total(geom, p_s, t_segment);
 rTotal_folded = mod(rTotal, range_interval);
 window = hamming(length(t_segment))';
+%window = kaiser(length(t_segment),2.4)';
 backscatter = sum(window.*GI(rTotal_folded, t_segment).*exp(complex(0,-2*pi*(rTotal_folded)./(c/fc)))); %actual back projection coherent summation with windowing 
 end
 
